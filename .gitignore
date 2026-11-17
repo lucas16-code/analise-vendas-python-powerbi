@@ -1,0 +1,11 @@
+# Dados comerciais
+dados_originais/
+dados_tratados/
+
+# Arquivos temporários do Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+.venv/
+venv/
