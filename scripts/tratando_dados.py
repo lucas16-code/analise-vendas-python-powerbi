@@ -1,6 +1,7 @@
-
 from pathlib import Path
+import numpy as np
 import pandas as pd
+
 
 # 1. LOCALIZAÇÃO DOS ARQUIVOS
 
@@ -21,10 +22,7 @@ bases = []
 
 for arquivo in arquivos:
     df = pd.read_excel(arquivo)
-
-    # Identifica a categoria de cada registro
     df["categoria_origem"] = arquivo.stem
-
     bases.append(df)
 
 dados = pd.concat(bases, ignore_index=True)
@@ -80,14 +78,10 @@ if fora_periodo.any():
 # 5. RESUMO DA BASE
 
 print("\n--- RESUMO DA BASE ---")
-
 print(f"Arquivos importados: {len(arquivos)}")
 print(f"Total de registros: {len(dados)}")
 print(f"Total de colunas: {len(dados.columns)}")
-print(
-    f"Movimentações únicas: {dados['rel_idMov'].nunique()}"
-)
-
+print(f"Movimentações únicas: {dados['rel_idMov'].nunique()}")
 print(f"Primeira data: {dados['rel_dhEmi'].min()}")
 print(f"Última data: {dados['rel_dhEmi'].max()}")
 
@@ -147,10 +141,61 @@ dados = dados.rename(columns={
     "rel_idMov": "ID da Movimentação"
 })
 
+
+# 10. SIMULAÇÃO DE CENÁRIO: CROSS-SELL POR CUPOM ÚNICO
+# Premissa: 15% dos clientes que passaram no caixa com APENAS 1 item no cupom inteiro
+# aceitam levar 1 item adicional de R$ 2,00
+
+np.random.seed(42)
+
+taxa_conversao = 0.15
+valor_item_adicional = 2.00
+
+# Soma a quantidade total de itens dentro de cada cupom (ID da Movimentação)
+qtd_por_cupom = dados.groupby("ID da Movimentação")["Quantidade Vendida"].transform("sum")
+
+# Filtra apenas cupons concluídos (Status == 2) que tiveram EXATAMENTE 1 item na compra inteira
+filtro_cupom_um_item = (qtd_por_cupom == 1) & (dados["Status"] == 2)
+
+# Sorteia 15% desses cupons
+sorteio = np.random.rand(len(dados)) < taxa_conversao
+condicao_cross_sell = filtro_cupom_um_item & sorteio
+
+dados["Valor Total Simulado"] = np.where(
+    condicao_cross_sell,
+    dados["Valor Total"] + valor_item_adicional,
+    dados["Valor Total"]
+)
+
+dados["Quantidade Simulada"] = np.where(
+    condicao_cross_sell,
+    dados["Quantidade Vendida"] + 1,
+    dados["Quantidade Vendida"]
+)
+
+dados["Cenário Simulação"] = np.where(
+    condicao_cross_sell,
+    "Com Adicional (+R$ 2,00)",
+    "Venda Original"
+)
+
+# Remove o ID da Movimentação após usá-lo na simulação
 dados = dados.drop(columns=["ID da Movimentação"])
 
+faturamento_simulado = dados["Valor Total Simulado"].sum()
+diferenca = faturamento_simulado - total_geral
+ticket_medio_real = dados["Valor Total"].mean()
+ticket_medio_simulado = dados["Valor Total Simulado"].mean()
 
-# 10. EXPORTAÇÃO DA BASE TRATADA
+print("\n--- RESULTADO DA SIMULAÇÃO (POR CUPOM ÚNICO) ---")
+print(f"Cupons de 1 item na compra inteira: {filtro_cupom_um_item.sum()}")
+print(f"Cupons convertidos (15%): {condicao_cross_sell.sum()}")
+print(f"Faturamento Real: R$ {total_geral:,.2f}")
+print(f"Faturamento Simulado: R$ {faturamento_simulado:,.2f} (+R$ {diferenca:,.2f})")
+print(f"Ticket Médio: R$ {ticket_medio_real:.2f} -> R$ {ticket_medio_simulado:.2f}")
+
+
+# 11. EXPORTAÇÃO DA BASE TRATADA
 
 pasta_saida = projeto / "dados_tratados"
 pasta_saida.mkdir(parents=True, exist_ok=True)
